@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState, useEffect } from "react";
 
 type Course = {
   name: string;
@@ -10,11 +10,31 @@ export default function Admin() {
   const [name, setName] = useState("");
   const [url, setUrl] = useState("");
 
+  // Load saved courses from localStorage
+  useEffect(() => {
+    const saved = localStorage.getItem("courses");
+    if (saved) {
+      setCourses(JSON.parse(saved));
+    }
+  }, []);
+
+  // Save courses to localStorage whenever it changes
+  useEffect(() => {
+    localStorage.setItem("courses", JSON.stringify(courses));
+  }, [courses]);
+
   const addCourse = () => {
     if (!name || !url) return;
-    setCourses([...courses, { name, url }]);
+    const newCourses = [...courses, { name, url }];
+    setCourses(newCourses);
     setName("");
     setUrl("");
+  };
+
+  const removeCourse = (index: number) => {
+    const updated = [...courses];
+    updated.splice(index, 1);
+    setCourses(updated);
   };
 
   return (
@@ -41,14 +61,22 @@ export default function Admin() {
       <h2 style={{ marginTop: "2rem" }}>Saved Courses</h2>
       <ul>
         {courses.map((course, idx) => (
-          <li key={idx}>
+          <li key={idx} style={{ marginBottom: "0.5rem" }}>
             <strong>{course.name}</strong>:{" "}
             <a href={course.url} target="_blank" rel="noopener noreferrer">
               {course.url}
-            </a>
+            </a>{" "}
+            <button
+              onClick={() => removeCourse(idx)}
+              style={{ marginLeft: "1rem", color: "red" }}
+            >
+              Remove
+            </button>
           </li>
         ))}
       </ul>
     </div>
   );
 }
+`
+
