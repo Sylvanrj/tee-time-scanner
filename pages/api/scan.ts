@@ -1,5 +1,5 @@
 import type { NextApiRequest, NextApiResponse } from 'next';
-import fetch from 'node-fetch';
+import { fetch } from 'undici';
 
 type TeeTime = {
   time: string;
