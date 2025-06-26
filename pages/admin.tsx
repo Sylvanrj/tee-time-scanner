@@ -39,7 +39,7 @@ export default function Admin() {
 
   return (
     <div style={{ padding: "2rem", fontFamily: "sans-serif" }}>
-      <h1>Add a Golf Course</h1>
+      <h1>Add or Remove a Golf Course</h1>
       <div style={{ marginTop: "1rem" }}>
         <input
           placeholder="Course Name"
