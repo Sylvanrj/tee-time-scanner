@@ -13,7 +13,8 @@ export default function Dashboard() {
   const [startTime, setStartTime] = useState("");
   const [endTime, setEndTime] = useState("");
   const [slackWebhook, setSlackWebhook] = useState("");
-  const [results, setResults] = useState<string[]>([]);
+  const [results, setResults] = useState<{ course: string; times: string[] }[]>([]);
+  const [loading, setLoading] = useState(false);
 
   // Load saved courses from localStorage
   useEffect(() => {
@@ -25,19 +26,35 @@ export default function Dashboard() {
 
   const handleCourseToggle = (name: string) => {
     setSelectedCourses((prev) =>
-      prev.includes(name)
-        ? prev.filter((n) => n !== name)
-        : [...prev, name]
+      prev.includes(name) ? prev.filter((n) => n !== name) : [...prev, name]
     );
   };
 
-  const handleScan = () => {
-    const mockResults = selectedCourses.map(
-      (course) =>
-        `${course} has tee times on ${startDate} between ${startTime}–${endTime}`
-    );
-    setResults(mockResults);
-    // In a future step, this will call the scraper and Slack API
+  const handleScan = async () => {
+    setLoading(true);
+    setResults([]);
+    const matchedCourses: { course: string; times: string[] }[] = [];
+
+    for (const name of selectedCourses) {
+      const course = courses.find((c) => c.name === name);
+      if (!course) continue;
+
+      try {
+        const res = await fetch("/api/scan", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ url: course.url }),
+        });
+
+        const data = await res.json();
+        matchedCourses.push({ course: name, times: data.times || [] });
+      } catch (err) {
+        matchedCourses.push({ course: name, times: ["Error fetching data"] });
+      }
+    }
+
+    setResults(matchedCourses);
+    setLoading(false);
   };
 
   return (
@@ -96,20 +113,26 @@ export default function Dashboard() {
 
       <div style={{ marginTop: "2rem" }}>
         <button onClick={handleScan} style={{ padding: "0.75rem 1.5rem" }}>
-          Start Scan
+          {loading ? "Scanning..." : "Start Scan"}
         </button>
       </div>
 
       {results.length > 0 && (
         <div style={{ marginTop: "2rem" }}>
           <h2>Scan Results</h2>
-          <ul>
-            {results.map((result, idx) => (
-              <li key={idx}>{result}</li>
-            ))}
-          </ul>
+          {results.map((result, idx) => (
+            <div key={idx} style={{ marginBottom: "1rem" }}>
+              <strong>{result.course}</strong>
+              <ul>
+                {result.times.map((time, i) => (
+                  <li key={i}>{time}</li>
+                ))}
+              </ul>
+            </div>
+          ))}
         </div>
       )}
     </div>
   );
 }
+
