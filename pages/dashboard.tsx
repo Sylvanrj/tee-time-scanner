@@ -124,10 +124,15 @@ export default function Dashboard() {
             <div key={idx} style={{ marginBottom: "1rem" }}>
               <strong>{result.course}</strong>
               <ul>
-                {result.times.map((time, i) => (
-                  <li key={i}>{time}</li>
+                {result.times.map((slot: any, i) => (
+                  <li key={i}>
+                    <strong>{slot.time}</strong> – {slot.price || "N/A"} –{" "}
+                    <a href={slot.bookingUrl} target="_blank" rel="noopener noreferrer">
+                      Book Now
+                    </a>
+                  </li>
                 ))}
-              </ul>
+            </ul>
             </div>
           ))}
         </div>
