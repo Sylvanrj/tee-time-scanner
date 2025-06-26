@@ -1,6 +1,11 @@
 import type { NextApiRequest, NextApiResponse } from 'next';
 import fetch from 'node-fetch';
-import cheerio from 'cheerio';
+
+type TeeTime = {
+  time: string;
+  price?: string;
+  bookingUrl: string;
+};
 
 export default async function handler(req: NextApiRequest, res: NextApiResponse) {
   if (req.method !== 'POST') {
@@ -13,23 +18,58 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
   }
 
   try {
-    const response = await fetch(url);
-    const html = await response.text();
-    const $ = cheerio.load(html);
+    let results: TeeTime[] = [];
 
-    // Example logic: Find tee time listings
-    const times: string[] = [];
-    $('[class*=TeeTimeCard]').each((_, el) => {
-      const timeText = $(el).text();
-      if (timeText.includes('AM') || timeText.includes('PM')) {
-        times.push(timeText.trim());
-      }
-    });
+    // 🟢 Neshanic Valley – TeeItUp System
+    if (url.includes("teeitup.com")) {
+      const searchUrl = new URL(url);
+      const date = searchUrl.searchParams.get("date") || new Date().toISOString().split("T")[0];
+      const course = searchUrl.searchParams.get("course");
 
-    res.status(200).json({ times: times.slice(0, 10) }); // Return first 10 matches
+      const apiUrl = `https://somerset-group-v2.book.teeitup.com/api/tee-times?date=${date}&course_id=${course}&holes=18&players=1`;
+      const data = await fetch(apiUrl).then(res => res.json());
+
+      results = data.tee_times.map((t: any) => ({
+        time: t.time,
+        price: t.green_fee?.display || "N/A",
+        bookingUrl: url,
+      }));
+    }
+
+    // 🟢 Francis Byrne – ForeUp Software
+    else if (url.includes("foreupsoftware.com")) {
+      // Example endpoint:
+      // https://foreupsoftware.com/index.php/api/booking/times/22528/11078/2024-06-30?time=all&holes=all
+      const today = new Date().toISOString().split("T")[0];
+      const parts = url.split("/");
+      const company_id = parts[6];
+      const course_id = parts[7];
+
+      const apiUrl = `https://foreupsoftware.com/index.php/api/booking/times/${company_id}/${course_id}/${today}?time=all&holes=all`;
+      const response = await fetch(apiUrl, {
+        headers: {
+          "Content-Type": "application/json",
+        },
+      });
+      const data = await response.json();
+
+      results = data
+        .filter((slot: any) => slot.is_reserved === false)
+        .map((slot: any) => ({
+          time: slot.time,
+          price: slot.green_fee || "N/A",
+          bookingUrl: url,
+        }));
+    }
+
+    // 🔴 Not yet supported
+    else {
+      return res.status(400).json({ error: "Unsupported booking site" });
+    }
+
+    res.status(200).json({ times: results });
   } catch (error) {
-    console.error(error);
-    res.status(500).json({ error: 'Failed to fetch or parse page' });
+    console.error("Scraper error:", error);
+    res.status(500).json({ error: "Failed to fetch or parse tee times" });
   }
 }
-
