@@ -38,9 +38,13 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
         throw new Error("TeeItUp response is not valid JSON");
       }
 
-      const data = await response.json();
+      const data = (await response.json()) as { tee_times: any[] };
 
-      results = data.tee_times.map((t: any) => ({
+      if (!Array.isArray(data.tee_times)) {
+        throw new Error("TeeItUp response missing tee_times array");
+      }
+
+      results = data.tee_times.map((t) => ({
         time: t.time,
         price: t.green_fee?.display || "N/A",
         bookingUrl: url,
@@ -63,15 +67,17 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
 
       const data = await response.json();
 
-      results = Array.isArray(data)
-        ? data
-            .filter((slot: any) => slot.is_reserved === false)
-            .map((slot: any) => ({
-              time: slot.time,
-              price: slot.green_fee || "N/A",
-              bookingUrl: url,
-            }))
-        : [];
+      if (!Array.isArray(data)) {
+        throw new Error("ForeUp response is not an array");
+      }
+
+      results = data
+        .filter((slot: any) => slot.is_reserved === false)
+        .map((slot: any) => ({
+          time: slot.time,
+          price: slot.green_fee || "N/A",
+          bookingUrl: url,
+        }));
     }
 
     // 🔴 Not yet supported
