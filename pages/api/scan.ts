@@ -26,27 +26,25 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
       const date = searchUrl.searchParams.get("date") || new Date().toISOString().split("T")[0];
       const course = searchUrl.searchParams.get("course");
 
+      if (!course) {
+        return res.status(400).json({ error: "Missing course ID in URL" });
+      }
+
       const apiUrl = `https://somerset-group-v2.book.teeitup.com/api/tee-times?date=${date}&course_id=${course}&holes=18&players=1`;
       const response = await fetch(apiUrl);
-      const raw = await response.text();
+      const contentType = response.headers.get("content-type");
 
-      try {
-        const data = JSON.parse(raw);
-
-        if (!Array.isArray(data.tee_times)) {
-          throw new Error("Expected tee_times to be an array");
-        }
-
-        results = data.tee_times.map((t: any) => ({
-          time: t.time,
-          price: t.green_fee?.display || "N/A",
-          bookingUrl: url,
-        }));
-      } catch (err) {
-        console.error("❌ TeeItUp parsing error:", err);
-        console.error("Raw response:", raw.slice(0, 300));
-        return res.status(500).json({ error: "TeeItUp response was not JSON or expected format" });
+      if (!contentType?.includes("application/json")) {
+        throw new Error("TeeItUp response is not valid JSON");
       }
+
+      const data = await response.json();
+
+      results = data.tee_times.map((t: any) => ({
+        time: t.time,
+        price: t.green_fee?.display || "N/A",
+        bookingUrl: url,
+      }));
     }
 
     // 🟢 Francis Byrne – ForeUp Software
@@ -62,27 +60,18 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
           "Content-Type": "application/json",
         },
       });
-      const raw = await response.text();
 
-      try {
-        const data = JSON.parse(raw);
+      const data = await response.json();
 
-        if (!Array.isArray(data)) {
-          throw new Error("Expected response to be an array");
-        }
-
-        results = data
-          .filter((slot: any) => slot.is_reserved === false)
-          .map((slot: any) => ({
-            time: slot.time,
-            price: slot.green_fee || "N/A",
-            bookingUrl: url,
-          }));
-      } catch (err) {
-        console.error("❌ ForeUp parsing error:", err);
-        console.error("Raw response:", raw.slice(0, 300));
-        return res.status(500).json({ error: "ForeUp response was not JSON or expected format" });
-      }
+      results = Array.isArray(data)
+        ? data
+            .filter((slot: any) => slot.is_reserved === false)
+            .map((slot: any) => ({
+              time: slot.time,
+              price: slot.green_fee || "N/A",
+              bookingUrl: url,
+            }))
+        : [];
     }
 
     // 🔴 Not yet supported
@@ -91,8 +80,8 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
     }
 
     res.status(200).json({ times: results });
-  } catch (error) {
+  } catch (error: any) {
     console.error("Scraper error:", error);
-    res.status(500).json({ error: "Failed to fetch or parse tee times" });
+    res.status(500).json({ error: error.message || "Failed to fetch or parse tee times" });
   }
 }
