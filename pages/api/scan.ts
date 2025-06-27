@@ -1,4 +1,4 @@
-import type { NextApiRequest, NextApiResponse } from 'next';
+import type { NextApiRequest, NextApiResponse } from  'next';
 import { fetch } from 'undici';
 
 type TeeTime = {
