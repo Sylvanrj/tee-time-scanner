@@ -1,4 +1,4 @@
-import type { NextApiRequest, NextApiResponse } from  'next';
+import type { NextApiRequest, NextApiResponse } from 'next';
 import { fetch } from 'undici';
 
 type TeeTime = {
@@ -17,59 +17,84 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
     return res.status(400).json({ error: 'Missing URL' });
   }
 
+  console.log("🔍 Scan request received:", url);
+
+  let results: TeeTime[] = [];
+
   try {
-    let results: TeeTime[] = [];
-
-    // 🟢 Neshanic Valley – TeeItUp System
+    // 🟢 Neshanic Valley – TeeItUp
     if (url.includes("teeitup.com")) {
-      const searchUrl = new URL(url);
-      const date = searchUrl.searchParams.get("date") || new Date().toISOString().split("T")[0];
-      const course = searchUrl.searchParams.get("course");
+      try {
+        const searchUrl = new URL(url);
+        const date = searchUrl.searchParams.get("date") || new Date().toISOString().split("T")[0];
+        const course = searchUrl.searchParams.get("course");
 
-      const apiUrl = `https://somerset-group-v2.book.teeitup.com/api/tee-times?date=${date}&course_id=${course}&holes=18&players=1`;
-      const data: any = await fetch(apiUrl).then(res => res.json());
+        if (!course) throw new Error("Missing course ID in URL");
 
-      results = data.tee_times.map((t: any) => ({
-        time: t.time,
-        price: t.green_fee?.display || "N/A",
-        bookingUrl: url,
-      }));
+        const apiUrl = `https://somerset-group-v2.book.teeitup.com/api/tee-times?date=${date}&course_id=${course}&holes=18&players=1`;
+        console.log("🌐 Fetching Neshanic from:", apiUrl);
+
+        const data = await fetch(apiUrl).then(res => res.json());
+        console.log("✅ Fetched teeitup.com data:", data);
+
+        if (!Array.isArray(data.tee_times)) throw new Error("tee_times is not an array");
+
+        results = data.tee_times.map((t: any) => ({
+          time: t.time,
+          price: t.green_fee?.display || "N/A",
+          bookingUrl: url,
+        }));
+      } catch (err) {
+        console.error("❌ Neshanic error:", err);
+        return res.status(500).json({ error: "Failed to fetch tee times from Neshanic" });
+      }
     }
 
     // 🟢 Francis Byrne – ForeUp Software
     else if (url.includes("foreupsoftware.com")) {
-      // Example endpoint:
-      // https://foreupsoftware.com/index.php/api/booking/times/22528/11078/2024-06-30?time=all&holes=all
-      const today = new Date().toISOString().split("T")[0];
-      const parts = url.split("/");
-      const company_id = parts[6];
-      const course_id = parts[7];
+      try {
+        const today = new Date().toISOString().split("T")[0];
+        const parts = url.split("/");
+        const company_id = parts[6];
+        const course_id = parts[7];
 
-      const apiUrl = `https://foreupsoftware.com/index.php/api/booking/times/${company_id}/${course_id}/${today}?time=all&holes=all`;
-      const response = await fetch(apiUrl, {
-        headers: {
-          "Content-Type": "application/json",
-        },
-      });
-      const data: any = await response.json();
+        const apiUrl = `https://foreupsoftware.com/index.php/api/booking/times/${company_id}/${course_id}/${today}?time=all&holes=all`;
+        console.log("🌐 Fetching Francis Byrne from:", apiUrl);
 
-      results = data
-        .filter((slot: any) => slot.is_reserved === false)
-        .map((slot: any) => ({
-          time: slot.time,
-          price: slot.green_fee || "N/A",
-          bookingUrl: url,
-        }));
+        const response = await fetch(apiUrl, {
+          headers: {
+            "Content-Type": "application/json",
+          },
+        });
+        const data = await response.json();
+        console.log("✅ Fetched foreup data:", data);
+
+        if (!Array.isArray(data)) throw new Error("ForeUp data is not an array");
+
+        results = data
+          .filter((slot: any) => slot.is_reserved === false)
+          .map((slot: any) => ({
+            time: slot.time,
+            price: slot.green_fee || "N/A",
+            bookingUrl: url,
+          }));
+      } catch (err) {
+        console.error("❌ ForeUp error:", err);
+        return res.status(500).json({ error: "Failed to fetch tee times from Francis Byrne" });
+      }
     }
 
-    // 🔴 Not yet supported
+    // 🔴 Unsupported Course
     else {
       return res.status(400).json({ error: "Unsupported booking site" });
     }
 
-    res.status(200).json({ times: results });
+    console.log("📦 Final tee time results:", results);
+    return res.status(200).json({ times: results });
+
   } catch (error) {
-    console.error("Scraper error:", error);
-    res.status(500).json({ error: "Failed to fetch or parse tee times" });
+    console.error("🚨 General error:", error);
+    return res.status(500).json({ error: "Unexpected server error" });
   }
 }
+
