@@ -18,73 +18,73 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
   }
 
   try {
-    let  results: TeeTime[] = [];
+    let results: TeeTime[] = [];
 
-// TeeItUp system
-if (url.includes("teeitup.com")) {
-  const searchUrl = new URL(url);
-  const date = searchUrl.searchParams.get("date") || new Date().toISOString().split("T")[0];
-  const course = searchUrl.searchParams.get("course");
+    // 🟢 Neshanic Valley – TeeItUp System
+    if (url.includes('teeitup.com')) {
+      const searchUrl = new URL(url);
+      const date = searchUrl.searchParams.get('date') || new Date().toISOString().split('T')[0];
+      const course = searchUrl.searchParams.get('course');
 
-  const apiUrl = `https://somerset-group-v2.book.teeitup.com/api/tee-times?date=${date}&course_id=${course}&holes=18&players=1`;
+      const apiUrl = `https://somerset-group-v2.book.teeitup.com/api/tee-times?date=${date}&course_id=${course}&holes=18&players=1`;
+      const response = await fetch(apiUrl);
+      const text = await response.text();
 
-  const response = await fetch(apiUrl);
-  const text = await response.text();
+      try {
+        const data = JSON.parse(text);
+        if (!Array.isArray(data?.tee_times)) {
+          console.error('Unexpected TeeItUp format:', data);
+          throw new Error('TeeItUp response missing tee_times array');
+        }
 
-  try {
-    const data = JSON.parse(text);
-    if (!Array.isArray(data?.tee_times)) {
-      throw new Error("TeeItUp response missing tee_times array");
+        results = data.tee_times.map((t: any) => ({
+          time: t.time,
+          price: t.green_fee?.display || 'N/A',
+          bookingUrl: url,
+        }));
+      } catch (err) {
+        console.error('TeeItUp response not valid JSON:', text.slice(0, 100));
+        throw new Error('TeeItUp response is not valid JSON');
+      }
     }
 
-    results = data.tee_times.map((t: any) => ({
-      time: t.time,
-      price: t.green_fee?.display || "N/A",
-      bookingUrl: url,
-    }));
-  } catch (err) {
-    console.error("TeeItUp JSON parse error or bad structure:", text.slice(0, 100));
-    throw new Error("TeeItUp response is not valid JSON");
-  }
-}
+    // 🟢 Francis Byrne – ForeUp Software
+    else if (url.includes('foreupsoftware.com')) {
+      const today = new Date().toISOString().split('T')[0];
+      const parts = url.split('/');
+      const company_id = parts[6];
+      const course_id = parts[7];
 
-// ForeUp system
-else if (url.includes("foreupsoftware.com")) {
-  const today = new Date().toISOString().split("T")[0];
-  const parts = url.split("/");
-  const company_id = parts[6];
-  const course_id = parts[7];
+      const apiUrl = `https://foreupsoftware.com/index.php/api/booking/times/${company_id}/${course_id}/${today}?time=all&holes=all`;
+      const response = await fetch(apiUrl, {
+        headers: {
+          'Content-Type': 'application/json',
+        },
+      });
 
-  const apiUrl = `https://foreupsoftware.com/index.php/api/booking/times/${company_id}/${course_id}/${today}?time=all&holes=all`;
+      const data = await response.json();
+      if (!Array.isArray(data)) {
+        console.error('ForeUp response not an array:', data);
+        throw new Error('ForeUp response is not an array');
+      }
 
-  const response = await fetch(apiUrl, {
-    headers: { "Content-Type": "application/json" },
-  });
-  const data = await response.json();
-
-  if (!Array.isArray(data)) {
-    console.error("ForeUp returned:", data);
-    throw new Error("ForeUp response is not an array");
-  }
-
-  results = data
-    .filter((slot: any) => slot.is_reserved === false)
-    .map((slot: any) => ({
-      time: slot.time,
-      price: slot.green_fee || "N/A",
-      bookingUrl: url,
-    }));
-}
-
+      results = data
+        .filter((slot: any) => slot.is_reserved === false)
+        .map((slot: any) => ({
+          time: slot.time,
+          price: slot.green_fee || 'N/A',
+          bookingUrl: url,
+        }));
+    }
 
     // 🔴 Not yet supported
     else {
-      return res.status(400).json({ error: "Unsupported booking site" });
+      return res.status(400).json({ error: 'Unsupported booking site' });
     }
 
     res.status(200).json({ times: results });
-  } catch (error: any) {
-    console.error("Scraper error:", error);
-    res.status(500).json({ error: error.message || "Failed to fetch or parse tee times" });
+  } catch (error) {
+    console.error('Scraper error:', error);
+    res.status(500).json({ error: (error as Error).message || 'Failed to fetch or parse tee times' });
   }
 }
