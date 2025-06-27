@@ -51,7 +51,7 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
           "Content-Type": "application/json",
         },
       });
-      const data = await response.json();
+      const data: any = await response.json();
 
       results = data
         .filter((slot: any) => slot.is_reserved === false)
