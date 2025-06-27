@@ -27,7 +27,7 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
       const course = searchUrl.searchParams.get("course");
 
       const apiUrl = `https://somerset-group-v2.book.teeitup.com/api/tee-times?date=${date}&course_id=${course}&holes=18&players=1`;
-      const data = await fetch(apiUrl).then(res => res.json());
+      const data: any = await fetch(apiUrl).then(res => res.json());
 
       results = data.tee_times.map((t: any) => ({
         time: t.time,
