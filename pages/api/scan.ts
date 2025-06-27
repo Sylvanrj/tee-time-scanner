@@ -18,7 +18,7 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
   }
 
   try {
-    let results: TeeTime[] = [];
+    let  results: TeeTime[] = [];
 
 // TeeItUp system
 if (url.includes("teeitup.com")) {
