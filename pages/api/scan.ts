@@ -1,80 +1,59 @@
 import type { NextApiRequest, NextApiResponse } from 'next';
+import { fetch } from 'undici';
+import * as cheerio from 'cheerio';
 
-const COURSE_ID = '7083'; // Neshanic Valley
-const API_BASE = 'https://phx-api-be-east-1b.kenna.io/v2/tee-times';
+type TeeTime = { time: string; price: string; bookingUrl: string };
+type CourseResult = { course: string; times: TeeTime[] };
 
-export default async function handler(req: NextApiRequest, res: NextApiResponse) {
-  try {
-    const { startDate, endDate, webhookUrl } = req.body;
+export default async function handler(
+  req: NextApiRequest,
+  res: NextApiResponse<CourseResult[] | { error: string }>
+) {
+  console.log("📥 scan request body:", req.body);
 
-    if (!startDate || !endDate || !webhookUrl) {
-      return res.status(400).json({ error: 'Missing required fields' });
-    }
-
-    const dates = getDateRange(startDate, endDate);
-    const results: any[] = [];
-
-    for (const date of dates) {
-      const url = `${API_BASE}?date=${date}&facilityIds=${COURSE_ID}`;
-
-      const response = await fetch(url, {
-        headers: {
-          'Accept': 'application/json',
-          'Origin': 'https://somerset-group-v2.book.teeitup.com',
-          'Referer': 'https://somerset-group-v2.book.teeitup.com/',
-        },
-      });
-
-      if (!response.ok) {
-        console.warn(`Failed to fetch ${date}:`, response.statusText);
-        continue;
-      }
-
-      const data = await response.json();
-
-      // Expecting an array of times under a 'teeTimes' key or similar
-      const teeTimes = data?.[COURSE_ID] ?? [];
-
-      for (const t of teeTimes) {
-        results.push({
-          date: t.date,
-          time: t.time,
-          price: t.greenFee?.display ?? 'N/A',
-          players: t.players,
-          bookingUrl: `https://somerset-group-v2.book.teeitup.com/?course=${COURSE_ID}&date=${date}`,
-        });
-      }
-    }
-
-    // Send to Slack
-    if (results.length) {
-      await fetch(webhookUrl, {
-        method: 'POST',
-        body: JSON.stringify({
-          text: `✅ Tee times found for Neshanic:\n` + results.map(r =>
-            `• ${r.date} ${r.time} — ${r.price} (${r.players}p)\n${r.bookingUrl}`
-          ).join('\n')
-        }),
-        headers: { 'Content-Type': 'application/json' }
-      });
-    }
-
-    res.status(200).json({ results });
-  } catch (err) {
-    console.error('Scraper error:', err);
-    res.status(500).json({ error: 'Internal server error' });
-  }
-}
-
-function getDateRange(start: string, end: string): string[] {
-  const dates = [];
-  let current = new Date(start);
-  const last = new Date(end);
-
-  while (current <= last) {
-    dates.push(current.toISOString().split('T')[0]);
-    current.setDate(current.getDate() + 1);
+  if (req.method !== 'POST') {
+    return res.status(405).json({ error: 'Only POST supported' });
   }
 
-  return dates;
+  const { courses, startDate, endDate, startTime, endTime, webhookUrl } = req.body;
+  if (
+    !Array.isArray(courses) ||
+    !startDate || !endDate ||
+    !startTime || !endTime ||
+    !webhookUrl
+  ) {
+    return res.status(400).json({ error: 'Missing required fields' });
+  }
+
+  const out: CourseResult[] = [];
+
+  for (const name of courses) {
+    let times: TeeTime[] = [];
+
+    // Example for Neshanic (Kenna API)
+    if (name === 'Neshanic') {
+      const date = startDate; // you can loop multiple dates here
+      const url = `https://phx-api-be-east-1b.kenna.io/v2/tee-times?date=${date}&facilityIds=7083`;
+      const resp = await fetch(url, {
+        headers: { 
+          Accept: 'application/json',
+          Origin: 'https://somerset-group-v2.book.teeitup.com',
+          Referer: 'https://somerset-group-v2.book.teeitup.com/'
+        }
+      });
+      const data = await resp.json();
+      const arr = Array.isArray(data['7083']) ? data['7083'] : [];
+      times = arr.map((t: any) => ({
+        time: t.time,
+        price: t.greenFee?.display || 'N/A',
+        bookingUrl: `https://somerset-group-v2.book.teeitup.com/?course=7083&date=${date}`
+      }));
+    }
+
+    // Add more course scrapers here…
+
+    out.push({ course: name, times });
+  }
+
+  return res.status(200).json(out);
 }
