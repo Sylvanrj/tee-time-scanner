@@ -1,80 +1,71 @@
 import type { NextApiRequest, NextApiResponse } from 'next';
-import { fetch } from 'undici';
-import * as cheerio from 'cheerio';
+import { parse } from 'url';
+import cheerio from 'cheerio';
 
 type TeeTime = {
   time: string;
-  price?: string;
+  price: string;
+  course?: string;
   bookingUrl: string;
 };
 
-export default async function handler(req: NextApiRequest, res: NextApiResponse) {
+type ScanResponse = {
+  [courseName: string]: TeeTime[];
+};
+
+const handler = async (req: NextApiRequest, res: NextApiResponse<ScanResponse | { error: string }>) => {
   if (req.method !== 'POST') {
-    return res.status(405).json({ error: 'Only POST supported' });
+    return res.status(405).json({ error: 'Method not allowed' });
   }
 
-  const { url } = req.body;
-  if (!url) {
-    return res.status(400).json({ error: 'Missing URL' });
+  const { courses, startDate, endDate, startTime, endTime } = req.body;
+
+  if (!Array.isArray(courses) || !startDate || !endDate || !startTime || !endTime) {
+    return res.status(400).json({ error: 'Missing parameters' });
   }
 
-  try {
-    let results: TeeTime[] = [];
+  const results: ScanResponse = {};
 
-    // ✅ Neshanic Valley (TeeItUp - but scraped with cheerio)
-    if (url.includes("teeitup.com")) {
-      const response = await fetch(url);
-      const html = await response.text();
-      const $ = cheerio.load(html);
+  for (const course of courses) {
+    try {
+      let courseResults: TeeTime[] = [];
 
-      $("button.tee-time-button").each((_, element) => {
-        const time = $(element).find(".time").text().trim();
-        const price = $(element).find(".green-fee").text().trim();
-        if (time) {
-          results.push({
-            time,
-            price: price || "N/A",
-            bookingUrl: url,
-          });
-        }
-      });
-    }
+      if (course === 'Neshanic') {
+        const url = 'https://www.golfteeitup.com/tee-times/neshanic-valley';
 
-    // ✅ Francis Byrne (ForeUp)
-    else if (url.includes("foreupsoftware.com")) {
-      const today = new Date().toISOString().split("T")[0];
-      const parts = url.split("/");
-      const company_id = parts[6];
-      const course_id = parts[7];
-      const apiUrl = `https://foreupsoftware.com/index.php/api/booking/times/${company_id}/${course_id}/${today}?time=all&holes=all`;
+        const response = await fetch(url);
+        const html = await response.text();
+        const $ = cheerio.load(html);
 
-      const response = await fetch(apiUrl, {
-        headers: {
-          "Content-Type": "application/json"
-        }
-      });
-      const data = await response.json();
+        $('button[data-testid="tee-time-button"]').each((_, el) => {
+          const label = $(el).attr('aria-label') || '';
 
-      if (!Array.isArray(data)) {
-        throw new Error("ForeUp response is not an array");
+          const timeMatch = label.match(/\b(\d{1,2}:\d{2}(?::\d{2})? [AP]M)\b/);
+          const priceMatch = label.match(/\$\d+(?:\.\d{2})?(?: – \$\d+(?:\.\d{2})?)?/);
+          const courseMatch = label.match(/selector for (.*?) -/);
+
+          if (timeMatch && priceMatch) {
+            courseResults.push({
+              time: timeMatch[1],
+              price: priceMatch[0],
+              course: courseMatch ? courseMatch[1] : 'Neshanic',
+              bookingUrl: url,
+            });
+          }
+        });
       }
 
-      results = data
-        .filter((slot: any) => !slot.is_reserved)
-        .map((slot: any) => ({
-          time: slot.time,
-          price: slot.green_fee || "N/A",
-          bookingUrl: url,
-        }));
-    }
+      // Add more course handlers here as needed
 
-    else {
-      return res.status(400).json({ error: "Unsupported booking site" });
+      results[course] = courseResults;
+    } catch (error) {
+      console.error(`Scraper error for ${course}:`, error);
+      results[course] = [];
     }
-
-    res.status(200).json({ times: results });
-  } catch (error) {
-    console.error("Scraper error:", error);
-    res.status(500).json({ error: "Failed to fetch or parse tee times" });
   }
-}
+
+  res.status(200).json(results);
+};
+
+export default handler;
+
