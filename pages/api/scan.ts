@@ -1,71 +1,80 @@
 import type { NextApiRequest, NextApiResponse } from 'next';
-import { parse } from 'url';
-import cheerio from 'cheerio';
 
-type TeeTime = {
-  time: string;
-  price: string;
-  course?: string;
-  bookingUrl: string;
-};
+const COURSE_ID = '7083'; // Neshanic Valley
+const API_BASE = 'https://phx-api-be-east-1b.kenna.io/v2/tee-times';
 
-type ScanResponse = {
-  [courseName: string]: TeeTime[];
-};
+export default async function handler(req: NextApiRequest, res: NextApiResponse) {
+  try {
+    const { startDate, endDate, webhookUrl } = req.body;
 
-const handler = async (req: NextApiRequest, res: NextApiResponse<ScanResponse | { error: string }>) => {
-  if (req.method !== 'POST') {
-    return res.status(405).json({ error: 'Method not allowed' });
-  }
+    if (!startDate || !endDate || !webhookUrl) {
+      return res.status(400).json({ error: 'Missing required fields' });
+    }
 
-  const { courses, startDate, endDate, startTime, endTime } = req.body;
+    const dates = getDateRange(startDate, endDate);
+    const results: any[] = [];
 
-  if (!Array.isArray(courses) || !startDate || !endDate || !startTime || !endTime) {
-    return res.status(400).json({ error: 'Missing parameters' });
-  }
+    for (const date of dates) {
+      const url = `${API_BASE}?date=${date}&facilityIds=${COURSE_ID}`;
 
-  const results: ScanResponse = {};
+      const response = await fetch(url, {
+        headers: {
+          'Accept': 'application/json',
+          'Origin': 'https://somerset-group-v2.book.teeitup.com',
+          'Referer': 'https://somerset-group-v2.book.teeitup.com/',
+        },
+      });
 
-  for (const course of courses) {
-    try {
-      let courseResults: TeeTime[] = [];
-
-      if (course === 'Neshanic') {
-        const url = 'https://www.golfteeitup.com/tee-times/neshanic-valley';
-
-        const response = await fetch(url);
-        const html = await response.text();
-        const $ = cheerio.load(html);
-
-        $('button[data-testid="tee-time-button"]').each((_, el) => {
-          const label = $(el).attr('aria-label') || '';
-
-          const timeMatch = label.match(/\b(\d{1,2}:\d{2}(?::\d{2})? [AP]M)\b/);
-          const priceMatch = label.match(/\$\d+(?:\.\d{2})?(?: – \$\d+(?:\.\d{2})?)?/);
-          const courseMatch = label.match(/selector for (.*?) -/);
-
-          if (timeMatch && priceMatch) {
-            courseResults.push({
-              time: timeMatch[1],
-              price: priceMatch[0],
-              course: courseMatch ? courseMatch[1] : 'Neshanic',
-              bookingUrl: url,
-            });
-          }
-        });
+      if (!response.ok) {
+        console.warn(`Failed to fetch ${date}:`, response.statusText);
+        continue;
       }
 
-      // Add more course handlers here as needed
+      const data = await response.json();
 
-      results[course] = courseResults;
-    } catch (error) {
-      console.error(`Scraper error for ${course}:`, error);
-      results[course] = [];
+      // Expecting an array of times under a 'teeTimes' key or similar
+      const teeTimes = data?.[COURSE_ID] ?? [];
+
+      for (const t of teeTimes) {
+        results.push({
+          date: t.date,
+          time: t.time,
+          price: t.greenFee?.display ?? 'N/A',
+          players: t.players,
+          bookingUrl: `https://somerset-group-v2.book.teeitup.com/?course=${COURSE_ID}&date=${date}`,
+        });
+      }
     }
+
+    // Send to Slack
+    if (results.length) {
+      await fetch(webhookUrl, {
+        method: 'POST',
+        body: JSON.stringify({
+          text: `✅ Tee times found for Neshanic:\n` + results.map(r =>
+            `• ${r.date} ${r.time} — ${r.price} (${r.players}p)\n${r.bookingUrl}`
+          ).join('\n')
+        }),
+        headers: { 'Content-Type': 'application/json' }
+      });
+    }
+
+    res.status(200).json({ results });
+  } catch (err) {
+    console.error('Scraper error:', err);
+    res.status(500).json({ error: 'Internal server error' });
+  }
+}
+
+function getDateRange(start: string, end: string): string[] {
+  const dates = [];
+  let current = new Date(start);
+  const last = new Date(end);
+
+  while (current <= last) {
+    dates.push(current.toISOString().split('T')[0]);
+    current.setDate(current.getDate() + 1);
   }
 
-  res.status(200).json(results);
-};
-
-export default handler;
-
+  return dates;
+}
