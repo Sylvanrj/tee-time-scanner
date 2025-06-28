@@ -13,7 +13,7 @@ export default function Dashboard() {
   const [startTime, setStartTime] = useState("");
   const [endTime, setEndTime] = useState("");
   const [slackWebhook, setSlackWebhook] = useState("");
-  const [results, setResults] = useState<{ course: string; times: string[] }[]>([]);
+  const [results, setResults] = useState<{ course: string; times: any[] }[]>([]);
   const [loading, setLoading] = useState(false);
 
   // Load saved courses from localStorage
@@ -33,27 +33,32 @@ export default function Dashboard() {
   const handleScan = async () => {
     setLoading(true);
     setResults([]);
-    const matchedCourses: { course: string; times: string[] }[] = [];
 
-    for (const name of selectedCourses) {
-      const course = courses.find((c) => c.name === name);
-      if (!course) continue;
+    try {
+      const res = await fetch("/api/scan", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          courses: selectedCourses,
+          startDate,
+          endDate,
+          startTime,
+          endTime,
+          webhookUrl: slackWebhook,
+        }),
+      });
 
-      try {
-        const res = await fetch("/api/scan", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ url: course.url }),
-        });
+      const data = await res.json();
 
-        const data = await res.json();
-        matchedCourses.push({ course: name, times: data.times || [] });
-      } catch (err) {
-        matchedCourses.push({ course: name, times: ["Error fetching data"] });
+      if (res.ok && Array.isArray(data)) {
+        setResults(data);
+      } else {
+        setResults([{ course: "Error", times: [data?.message || "Scan failed."] }]);
       }
+    } catch (err: any) {
+      setResults([{ course: "Error", times: [err.message || "Network error"] }]);
     }
 
-    setResults(matchedCourses);
     setLoading(false);
   };
 
@@ -124,15 +129,19 @@ export default function Dashboard() {
             <div key={idx} style={{ marginBottom: "1rem" }}>
               <strong>{result.course}</strong>
               <ul>
-                {result.times.map((slot: any, i) => (
+                {result.times.map((slot: any, i: number) => (
                   <li key={i}>
                     <strong>{slot.time}</strong> – {slot.price || "N/A"} –{" "}
-                    <a href={slot.bookingUrl} target="_blank" rel="noopener noreferrer">
-                      Book Now
-                    </a>
+                    {slot.bookingUrl ? (
+                      <a href={slot.bookingUrl} target="_blank" rel="noopener noreferrer">
+                        Book Now
+                      </a>
+                    ) : (
+                      "No link"
+                    )}
                   </li>
                 ))}
-            </ul>
+              </ul>
             </div>
           ))}
         </div>
@@ -140,4 +149,5 @@ export default function Dashboard() {
     </div>
   );
 }
+
 
