@@ -18,16 +18,13 @@ export default async function handler(
   req: NextApiRequest,
   res: NextApiResponse<CourseResult[] | { error: string }>
 ) {
-  // 1) Log incoming request so you can verify in Vercel 💻 → Functions → Logs
-  console.log('📥 [scan] incoming:', req.method, JSON.stringify(req.body));
+  console.log('📥 [scan] incoming:', JSON.stringify(req.body));
 
-  // 2) Only allow POST
   if (req.method !== 'POST') {
     res.setHeader('Allow', ['POST']);
     return res.status(405).json({ error: 'Method Not Allowed – use POST' });
   }
 
-  // 3) Destructure & validate payload
   const { courses, startDate, endDate, startTime, endTime, webhookUrl } = req.body;
   if (
     !Array.isArray(courses) ||
@@ -43,18 +40,16 @@ export default async function handler(
 
   const out: CourseResult[] = [];
 
-  // 4) Loop each selected course
   for (const course of courses) {
     let times: TeeTime[] = [];
 
-    try {
-      // — Neshanic Valley via Kenna.io API —
-      if (course === 'Neshanic') {
+    if (course === 'Neshanic') {
+      try {
         const date = startDate;
         const facilityId = '7083';
         const apiUrl = `https://phx-api-be-east-1b.kenna.io/v2/tee-times?date=${date}&facilityIds=${facilityId}`;
 
-        console.log(`🔗 [scan] fetching Kenna for ${course} →`, apiUrl);
+        console.log(`🔗 [Kenna] GET`, apiUrl);
         const resp = await fetch(apiUrl, {
           headers: {
             Accept: 'application/json',
@@ -62,46 +57,59 @@ export default async function handler(
             Referer: 'https://somerset-group-v2.book.teeitup.com/',
           },
         });
-        const data = await resp.json();
+
+        const text = await resp.text();
+        console.log(`👀 [Kenna] raw response text:`, text.slice(0, 200));
+
+        let data: any;
+        try {
+          data = JSON.parse(text);
+        } catch (parseErr) {
+          console.error('❌ [Kenna] JSON parse error:', parseErr);
+          // if it's not JSON, bail out for this course
+          continue;
+        }
+
         const arr = Array.isArray(data[facilityId]) ? data[facilityId] : [];
+        console.log(`📊 [Kenna] found ${arr.length} slots for ${facilityId}`);
+
         times = arr.map((t: any) => ({
           time: t.time,
           price: t.greenFee?.display ?? 'N/A',
           bookingUrl: `https://somerset-group-v2.book.teeitup.com/?course=${facilityId}&date=${date}`,
         }));
+      } catch (err) {
+        console.error(`❌ [scan] Error scraping Neshanic:`, err);
       }
+    }
 
-      // — Francis Byrne (ForeUp)… example using cheerio if JSON API isn’t available —
-      else if (course === 'Francis Byrne') {
-        const pageUrl = 'https://foreupsoftware.com/index.php/booking/22528/11078#/teetimes';
-        console.log(`🔗 [scan] scraping ForeUp for ${course} →`, pageUrl);
+    else if (course === 'Francis Byrne') {
+      // …your ForeUp scraper (unchanged)…
+      try {
+        const pageUrl =
+          'https://foreupsoftware.com/index.php/booking/22528/11078#/teetimes';
         const html = await (await fetch(pageUrl)).text();
         const $ = cheerio.load(html);
-        // TODO: adjust selectors to match the actual tee-time cards…
-        times = $('.time-slot-class').map((_, el) => ({
-          time: $(el).find('.time').text().trim(),
-          price: $(el).find('.price').text().trim(),
-          bookingUrl: pageUrl,
-        })).get();
+        times = $('.teetime-card')
+          .map((_, el) => ({
+            time: $(el).find('.time').text().trim(),
+            price: $(el).find('.price').text().trim(),
+            bookingUrl: pageUrl,
+          }))
+          .get();
+        console.log(`📊 [ForeUp] scraped ${times.length} slots`);
+      } catch (err) {
+        console.error(`❌ [scan] Error scraping Francis Byrne:`, err);
       }
+    }
 
-      // — Galloping Hill (EZLinks)… placeholder —
-      else if (course === 'Galloping Hill') {
-        // TODO: add your EZLinks JSON or cheerio scraper here
-        console.log(`🔗 [scan] Galloping Hill scraping not yet implemented`);
-      }
-
-      // unknown course
-      else {
-        console.warn(`⚠️ [scan] No scraper defined for course: ${course}`);
-      }
-    } catch (err) {
-      console.error(`❌ [scan] Error scraping ${course}:`, err);
+    else {
+      console.warn(`⚠️ [scan] no scraper defined for "${course}"`);
     }
 
     out.push({ course, times });
   }
 
-  // 5) Return your array of results
-  return res.status(200).json(out);
+  console.log('🚀 [scan] final results:', JSON.stringify(out));
+  res.status(200).json(out);
 }
